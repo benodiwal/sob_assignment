@@ -1,0 +1,131 @@
+use crate::operations::{hash_160, hash_256, op_0, op_1, op_2, op_3, op_check_multi_sig, op_check_sig, op_check_sig_verify, op_dup, op_equal, op_equal_verify, op_ripemd160, op_sha1, op_sha256};
+
+enum Operation {
+    PushBytes(Vec<u8>),
+    Ripemd160,
+    Sha1,
+    Sha256,
+    Hash160,
+    Hash256,
+    Zero,
+    One,
+    Two,
+    Three,
+    CheckSigVerify,
+    CheckSig,
+    Verify,
+    Equal,
+    EqualVerify,
+    Dup,
+    CheckMultiSig,
+}
+
+fn parse_script(script: Vec<&str>) -> Vec<Operation> {
+    let mut operations: Vec<Operation> = Vec::new();
+
+    for i in 0..script.len() {
+        if script[i].starts_with("OP_PUSHBYTES_") && i+1 < script.len() {
+            operations.push(Operation::PushBytes(hex::decode(script[i+1]).unwrap()));
+        } else {
+            match script[i] {
+                "OP_DUP" => {
+                    operations.push(Operation::Dup);
+                },
+                "OP_HASH160" => {
+                    operations.push(Operation::Hash160);
+                },
+                "OP_EQUALVERIFY" => {
+                    operations.push(Operation::EqualVerify);
+                },
+                "OP_EQUAL" => {
+                    operations.push(Operation::Equal);
+                },
+                "OP_HASH256" => {
+                    operations.push(Operation::Hash256);
+                },
+                "OP_SHA1"  => {
+                    operations.push(Operation::Sha1);
+                },
+                "OP_SHA256" => {
+                    operations.push(Operation::Sha256);
+                },
+                "OP_ZERO" => {
+                    operations.push(Operation::Zero);
+                },
+                "OP_ONE" => {
+                    operations.push(Operation::One);
+                },
+                "OP_TWO" => {
+                    operations.push(Operation::Two);
+                },
+                "OP_THREE" => {
+                    operations.push(Operation::Three);
+                },
+                "OP_CHECKSIG" => {
+                    operations.push(Operation::CheckSig);
+                },
+                "OP_CHECKSIGVERIFY" => {
+                    operations.push(Operation::CheckSigVerify);
+                },
+                "OP_VERIFY" => {
+                    operations.push(Operation::Verify);
+                },
+                "OP_CHECKMULTISIG" => {
+                    operations.push(Operation::CheckMultiSig);
+                },
+                "OP_RIPEMD160" => {
+                    operations.push(Operation::Ripemd160);
+                },
+                _ => {}
+            }
+        }
+    }
+
+    operations
+}
+
+#[allow(warnings)]
+pub fn verify_p2pkh_script(script: Vec<&str>, z: Vec<u8>) -> bool {
+    let mut stack: Vec<Vec<u8>> = Vec::new();
+
+    for op in parse_script(script) {
+        let res = match op {
+            Operation::Dup => op_dup(&mut stack, &z),
+            Operation::CheckMultiSig => op_check_multi_sig(&mut stack, &z),
+            Operation::CheckSig => op_check_sig(&mut stack, &z),
+            Operation::Equal => op_equal(&mut stack, &z),
+            Operation::CheckSigVerify => op_check_sig_verify(&mut stack, &z),
+            Operation::EqualVerify => op_equal_verify(&mut stack, &z),
+            Operation::Hash160 => hash_160(&mut stack, &z),
+            Operation::Hash256 => hash_256(&mut stack, &z),
+            Operation::Ripemd160 => op_ripemd160(&mut stack, &z),
+            Operation::Sha1 => op_sha1(&mut stack, &z),
+            Operation::Sha256 => op_sha256(&mut stack, &z),
+            Operation::Zero => op_0(&mut stack, &z),
+            Operation::One => op_1(&mut stack, &z),
+            Operation::Two => op_2(&mut stack, &z),
+            Operation::Three => op_3(&mut stack, &z),
+            Operation::PushBytes(val) => {
+                stack.push(val);
+                true
+            }
+            _ => false,
+        };
+
+        if !res {
+            return false;
+        }
+
+    }
+
+    if (stack.len() != 1) {
+        return false;
+    }
+
+    if stack[0].len() != 0 && stack[0][0] == 1 {
+        return true;
+    } else {
+        return false;
+    }
+
+}
