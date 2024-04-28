@@ -2,7 +2,7 @@ use std::{fs::{self, File}, io::Write};
 use serde::{Deserialize, Serialize};
 use sha1::Digest;
 use sha2::Sha256;
-use crate::{operations::hash256, scripts::{is_p2pkh_lock, is_p2wpkh_lock, p2pkhlock, verify_p2pkh_script}, utils::{big_to_buf_le, calculate_witness_commitment, encode_varint, generate_merkel_root, hex_string_to_bytes, is_byte_array}};
+use crate::{operations::hash256, scripts::{is_p2pkh_lock, is_p2wpkh_lock, p2pkhlock, p2pkhlock_cmds, verify_script}, utils::{big_to_buf_le, calculate_witness_commitment, encode_varint, generate_merkel_root, hex_string_to_bytes, is_byte_array}};
 
 static mut files : Vec<String> = Vec::new();
 
@@ -177,10 +177,12 @@ fn is_p2wpkh_transaction(transaction: &Transaction) -> bool {
 pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File) -> String {
 
     let mut tx_ids_hash: Vec<String> = Vec::new();
+    let mut wtx_ids_hash: Vec<String> = Vec::new();
+    let mut count = 0;
 
     for transaction in transactions.iter() {
 
-        if is_p2pkh_transaction(transaction) {
+        if is_p2wpkh_transaction(transaction) {
 
             let vin = &transaction.vin;
             let vout = &transaction.vout;
@@ -203,16 +205,21 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
             let mut is_valid: bool = true;
 
             for vin_content in vin {
-                let mut scriptsig_asm = &vin_content.scriptsig_asm;
-                let mut scriptpubkey_asm = &vin_content.prevout.scriptpubkey_asm;
+                // let mut scriptsig_asm = &vin_content.scriptsig_asm;
+                // let mut scriptpubkey_asm = &vin_content.prevout.scriptpubkey_asm;
 
-                let scriptsig_asm_array: Vec<&str> = scriptsig_asm.split_whitespace().collect();
-                let scriptpubkey_asm_array: Vec<&str> = scriptpubkey_asm.split_whitespace().collect();
+                // let scriptsig_asm_array: Vec<&str> = scriptsig_asm.split_whitespace().collect();
+                // let scriptpubkey_asm_array: Vec<&str> = scriptpubkey_asm.split_whitespace().collect();
 
-                let script = combined_script(scriptsig_asm_array, scriptpubkey_asm_array);
-                let sig_hash = transaction.sig_hash_legacy(i);
+                // let script = combined_script(scriptsig_asm_array, scriptpubkey_asm_array);
+                // let sig_hash = transaction.sig_hash_legacy(i);
 
-                if !verify_p2pkh_script(script, sig_hash) {
+                // if !verify_p2pkh_script(script, sig_hash) {
+                //     is_valid = false;
+                //     break;
+                // }
+
+                if !transaction.verify_input(i) {
                     is_valid = false;
                     break;
                 }
@@ -231,17 +238,24 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
                 let mut tx_rev = transaction.get_tx_id();
                 tx_rev.reverse();
 
-                let file_hash = Sha256::digest(tx_rev.clone());
+                let mut wtx_rev = transaction.get_wtx_id();
+                wtx_rev.reverse();
+
+                // let file_hash = Sha256::digest(tx_rev.clone());
                 // if hex::encode(file_hash) == "4c79436e7160b767cc0358e1bb93d52b9ba0844c292cbe97624fc122e1ecf969" {
                 //     println!("{:?}", transaction);
                 //     break;
                 // }
 
-                unsafe {
-                    if files.contains(&hex::encode(file_hash)) {
-                        tx_ids_hash.push(hex::encode(tx_rev));
-                    }
-                }
+                // unsafe {
+                //     if files.contains(&hex::encode(file_hash)) {
+                //         tx_ids_hash.push(hex::encode(tx_rev));
+                //     }
+                // }
+                count += 1;
+                
+                tx_ids_hash.push(hex::encode(tx_rev));
+                wtx_ids_hash.push(hex::encode(wtx_rev));
 
                 // println!("{}", hex::encode(file_hash));
             }
@@ -249,7 +263,7 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
         }
     }
 
-    let mut wtx_ids_hash: Vec<String> = tx_ids_hash.clone();
+    // let mut wtx_ids_hash: Vec<String> = tx_ids_hash.clone();
     wtx_ids_hash.insert(0, "0000000000000000000000000000000000000000000000000000000000000000".to_string());
     let witness_commitment = calculate_witness_commitment(wtx_ids_hash);
 
@@ -263,6 +277,8 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
     for tx in &tx_ids_hash {
         file.write_all((tx.clone() + "\n").as_bytes());
     }
+
+    println!("{}", count);
 
     generate_merkel_root(tx_ids_hash.iter().map(|s| s.as_str()).collect()).unwrap()
 
@@ -288,24 +304,33 @@ impl Transaction {
         let scriptpubkey_asm_array: Vec<&str> = vin.prevout.scriptpubkey_asm.split_whitespace().collect();
 
         let mut z: Vec<u8> = Vec::new();
-        let mut witness: Option<Vec<String>> = Some(Vec::new());
 
         if is_p2pkh_lock(scriptpubkey_asm_array.clone()) {
             z = self.sig_hash_legacy(idx); 
-            witness = None;
+
+            let scriptsig_asm = vin.scriptsig_asm.split_whitespace().collect();
+            let combined = combined_script(scriptsig_asm, scriptpubkey_asm_array);
+
+            verify_script(combined, z)
+
         } else if is_p2wpkh_lock(scriptpubkey_asm_array.clone()) {
             z = self.sig_hash_segwit(idx, None);
-            witness = Some(vin.witness.clone());
+            let mut witness: Vec<&str> = vin.witness.iter().map(|s| s.as_str()).collect();
+            witness.insert(0,  "OP_PUSHBYTES_1");
+            witness.insert(2,  "OP_PUSHBYTES_1");
+
+            let prev_script_pub_key: Vec<&str> = vin.prevout.scriptpubkey_asm.split_whitespace().collect();
+            let pkh160 = hex::decode(prev_script_pub_key[2]).unwrap();
+            let res = p2pkhlock_cmds(&pkh160);
+
+            let combined = combined_script(witness, res.iter().map(|s| s.as_str()).collect());
+
+            verify_script(combined, z)
+
         } else {
             return false;
         }
 
-        let scriptsig_asm = vin.scriptsig_asm.split_whitespace().collect();
-        let mut combined = combined_script(scriptsig_asm, scriptpubkey_asm_array);
-
-        
-
-        true
     }
 
     #[allow(warnings)]
@@ -386,12 +411,12 @@ impl Transaction {
                 script_code.append(&mut hex::decode(item).unwrap());
             }
         } else {
-            let prev_script_pub_key: Vec<&str> = vin.prevout.scriptpubkey.split_whitespace().collect();
-            let pkh160 = hex::decode(prev_script_pub_key[1]).unwrap();
+            let prev_script_pub_key: Vec<&str> = vin.prevout.scriptpubkey_asm.split_whitespace().collect();
+            let pkh160 = hex::decode(prev_script_pub_key[2]).unwrap();
             script_code = p2pkhlock(pkh160.as_ref());
         }
 
-        let mut value = big_to_buf_le(vin.prevout.value as u64, Some(4));
+        let mut value = big_to_buf_le(vin.prevout.value as u64, Some(8));
         let mut sequence = big_to_buf_le(vin.sequence as u64, Some(4));
         let mut hash_outputs: Vec<u8> = self.hash_outputs();
         let mut locktime = big_to_buf_le(self.locktime, Some(4));
@@ -509,7 +534,31 @@ impl Transaction {
     }
 
     pub fn get_tx_id(&self) -> Vec<u8> {
-        hash256(&self.serialize_legacy())
+        if !self.is_segwit() {
+            hash256(&self.serialize_legacy())
+        } else {
+            hash256(&self.serialize_segwit_tx_id())         
+        }
+    }
+
+    pub fn get_wtx_id(&self) -> Vec<u8> {
+        if !self.is_segwit() {
+            hash256(&self.serialize_legacy())
+        } else {
+            hash256(&self.serialize_segwit())  
+        }
+    }
+
+    fn is_segwit(&self) -> bool {
+        for vin in &self.vin {
+            let _type = &vin.prevout.scriptpubkey_type;
+
+            if _type == "v0_p2wpkh" || _type == "v0_p2wsh" {
+                return true;
+            }
+        }
+
+        false
     }
 
     #[allow(unused)]

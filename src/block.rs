@@ -21,11 +21,6 @@ impl Block {
     
         let time = Utc::now().timestamp() as u32;
         let time_hex = format!("{:0>8}", format!("{:x}", time));
-    
-        // let reversed_time_hex = time_hex
-        //     .chars()
-        //     .rev()
-        //     .collect::<String>();
 
         let mut reversed_time = hex::decode(time_hex).unwrap();
         reversed_time.reverse();

@@ -46,6 +46,8 @@ pub fn hash_160(stack: &mut Vec<Vec<u8>>, _: &[u8]) -> bool {
 
     let element = stack.pop().unwrap();
     stack.push(hash160(&element));
+
+    println!("{:?}", stack);
     
     true
 }
@@ -98,7 +100,8 @@ pub fn op_check_sig(stack: &mut Vec<Vec<u8>>, z: &[u8]) -> bool {
 
     let pk = match PublicKey::parse_slice(&pk_buf, None) {
         Ok(pk) => pk,
-        Err(_) => {
+        Err(err) => {
+            eprintln!("{:?}", err);
             op_0(stack, z);
             return true;
         }
@@ -113,14 +116,15 @@ pub fn op_check_sig(stack: &mut Vec<Vec<u8>>, z: &[u8]) -> bool {
 
     let sig = match Signature::parse_der_lax(&sig_buf[..sig_buf.len() - 1]) {
         Ok(sig) => sig,
-        Err(_) => {
+        Err(err) => {
+            eprintln!("{:?}", err);
             op_0(stack, z);
             return true;
         }
     };
 
     if verify(&msg_hash, &sig, &pk) {
-        op_1(stack, z);
+        println!("Yes");
     } else {
         op_0(stack, z);
     }
@@ -162,6 +166,8 @@ pub fn op_equal(stack: &mut Vec<Vec<u8>>, _: &[u8]) -> bool {
 }
 
 pub fn op_equal_verify(stack: &mut Vec<Vec<u8>>, _: &[u8]) -> bool {
+    println!("{:?}", stack.len());
+    
     if !op_equal(stack, &[0]) {
         return false;
     }
@@ -169,6 +175,8 @@ pub fn op_equal_verify(stack: &mut Vec<Vec<u8>>, _: &[u8]) -> bool {
     if !op_verify(stack, &[0]) {
         return false;
     }
+
+    println!("{:?}", stack);
 
     true
 }
@@ -181,6 +189,7 @@ pub fn op_dup(stack: &mut Vec<Vec<u8>>, _: &[u8]) -> bool {
     let top = stack.last().unwrap().clone();
 
     stack.push(top);
+    println!("{:?}", stack);
 
     true
 }

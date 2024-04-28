@@ -1,6 +1,6 @@
 use crate::operations::{hash_160, hash_256, op_0, op_1, op_2, op_3, op_check_multi_sig, op_check_sig, op_check_sig_verify, op_dup, op_equal, op_equal_verify, op_ripemd160, op_sha1, op_sha256};
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 enum Operation {
     PushBytes(Vec<u8>),
     Ripemd160,
@@ -50,16 +50,16 @@ fn parse_script(script: Vec<&str>) -> Vec<Operation> {
                 "OP_SHA256" => {
                     operations.push(Operation::Sha256);
                 },
-                "OP_ZERO" => {
+                "OP_0" => {
                     operations.push(Operation::Zero);
                 },
-                "OP_ONE" => {
+                "OP_1" => {
                     operations.push(Operation::One);
                 },
-                "OP_TWO" => {
+                "OP_2" => {
                     operations.push(Operation::Two);
                 },
-                "OP_THREE" => {
+                "OP_3" => {
                     operations.push(Operation::Three);
                 },
                 "OP_CHECKSIG" => {
@@ -85,19 +85,15 @@ fn parse_script(script: Vec<&str>) -> Vec<Operation> {
     operations
 }
 
-fn parse_witness_into_commands(witness: Vec<String>) -> Vec<Vec<u8>> {
-    let mut array: Vec<Vec<u8>> = Vec::new();
-    for item in &witness {
-        array.push(hex::decode(&item).unwrap());
-    }
-    array
-}
-
 #[allow(warnings)]
-pub fn verify_p2pkh_script(script: Vec<&str>, z: Vec<u8>) -> bool {
+pub fn verify_script(mut script: Vec<&str>, z: Vec<u8>) -> bool {
     let mut stack: Vec<Vec<u8>> = Vec::new();
+    println!("{:?}", parse_script(script.clone()));
 
     for op in parse_script(script) {
+
+        println!("{:?}", op);
+
         let res = match op {
             Operation::Dup => op_dup(&mut stack, &z),
             Operation::CheckMultiSig => op_check_multi_sig(&mut stack, &z),
@@ -200,11 +196,15 @@ pub fn is_p2wpkh_lock(script: Vec<&str>) -> bool {
 
 pub fn p2pkhlock(pkh160: &[u8]) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::new();
-    buf.append(&mut hex::decode("OP_DUP").unwrap());
-    buf.append(&mut hex::decode("OP_HASH160").unwrap());
+    buf.append(&mut hex::decode("76").unwrap());
+    buf.append(&mut hex::decode("a9").unwrap());
     buf.append(&mut pkh160.to_vec());
-    buf.append(&mut hex::decode("OP_EQUALVERIFY").unwrap());
-    buf.append(&mut hex::decode("OP_CHECKSIG").unwrap());
+    buf.append(&mut hex::decode("88").unwrap());
+    buf.append(&mut hex::decode("ac").unwrap());
 
     buf
+}
+
+pub fn p2pkhlock_cmds(pkh160: &[u8]) -> Vec<String> {
+    vec!["OP_DUP".to_string(), "OP_HASH160".to_string(), "OP_PUSHBYTES_1".to_string(), hex::encode(pkh160), "OP_EQUALVERIFY".to_string(), "OP_CHECKSIG".to_string()]
 }
