@@ -113,3 +113,7 @@ pub fn prepend_to_file(filename: &str, content: &str) -> io::Result<()>  {
 
     Ok(())
 }
+
+pub fn is_byte_array(value: &[u8]) -> bool {
+    !value.is_empty()
+}

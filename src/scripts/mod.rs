@@ -1,5 +1,6 @@
 use crate::operations::{hash_160, hash_256, op_0, op_1, op_2, op_3, op_check_multi_sig, op_check_sig, op_check_sig_verify, op_dup, op_equal, op_equal_verify, op_ripemd160, op_sha1, op_sha256};
 
+#[derive(PartialEq, Eq)]
 enum Operation {
     PushBytes(Vec<u8>),
     Ripemd160,
@@ -84,6 +85,14 @@ fn parse_script(script: Vec<&str>) -> Vec<Operation> {
     operations
 }
 
+fn parse_witness_into_commands(witness: Vec<String>) -> Vec<Vec<u8>> {
+    let mut array: Vec<Vec<u8>> = Vec::new();
+    for item in &witness {
+        array.push(hex::decode(&item).unwrap());
+    }
+    array
+}
+
 #[allow(warnings)]
 pub fn verify_p2pkh_script(script: Vec<&str>, z: Vec<u8>) -> bool {
     let mut stack: Vec<Vec<u8>> = Vec::new();
@@ -128,4 +137,74 @@ pub fn verify_p2pkh_script(script: Vec<&str>, z: Vec<u8>) -> bool {
         return false;
     }
 
+}
+
+
+pub fn is_p2pkh_lock(script: Vec<&str>) -> bool {
+    let cmds = parse_script(script);
+
+    if cmds.len() != 5 {
+        return false;
+    }
+
+    if cmds[0] != Operation::Dup {
+        return false;
+    }
+
+    if cmds[1] != Operation::Hash160 {
+        return false;
+    }
+
+    let pub_key_hash = &cmds[2];
+    if let Operation::PushBytes(pub_key_hash) = pub_key_hash {
+        if pub_key_hash.len() != 20 {
+            return false;
+        }
+    } else {
+        return false;
+    }
+
+    if cmds[3] != Operation::EqualVerify {
+        return false;
+    }
+
+    if cmds[4] != Operation::CheckSig {
+        return false;
+    }
+
+    true
+}
+
+pub fn is_p2wpkh_lock(script: Vec<&str>) -> bool {
+    let cmds = parse_script(script);
+
+    if cmds.len() != 2 {
+        return false;
+    }
+
+    if cmds[0] != Operation::Zero {
+        return false;
+    }
+
+    let pub_key_hash = &cmds[1];
+    if let Operation::PushBytes(pub_key_hash) = pub_key_hash {
+        if pub_key_hash.len() != 20 {
+            return false;
+        }
+    } else {
+        return false;
+    }
+
+    true
+}
+
+pub fn p2pkhlock(pkh160: &[u8]) -> Vec<u8> {
+    let mut buf: Vec<u8> = Vec::new();
+    buf.append(&mut hex::decode("OP_DUP").unwrap());
+    buf.append(&mut hex::decode("OP_HASH160").unwrap());
+    buf.append(&mut pkh160.to_vec());
+    buf.append(&mut hex::decode("OP_EQUALVERIFY").unwrap());
+    buf.append(&mut hex::decode("OP_CHECKSIG").unwrap());
+
+    buf
 }

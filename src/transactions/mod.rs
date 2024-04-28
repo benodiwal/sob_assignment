@@ -2,7 +2,7 @@ use std::{fs::{self, File}, io::Write};
 use serde::{Deserialize, Serialize};
 use sha1::Digest;
 use sha2::Sha256;
-use crate::{operations::hash256, scripts::verify_p2pkh_script, utils::{big_to_buf_le, calculate_witness_commitment, encode_varint, generate_merkel_root, hex_string_to_bytes}};
+use crate::{operations::hash256, scripts::{is_p2pkh_lock, is_p2wpkh_lock, p2pkhlock, verify_p2pkh_script}, utils::{big_to_buf_le, calculate_witness_commitment, encode_varint, generate_merkel_root, hex_string_to_bytes, is_byte_array}};
 
 static mut files : Vec<String> = Vec::new();
 
@@ -21,6 +21,8 @@ struct Vin {
     prevout: PrevOut,
     scriptsig: String,
     scriptsig_asm: String,
+    #[serde(default)]
+    witness: Vec<String>,
     is_coinbase: bool,
     sequence: u32,
 }
@@ -110,12 +112,6 @@ pub fn load_transactions_from_mempool(dir_name: &str) -> Result<Vec<Transaction>
     Ok(transactions)
 }
 
-// pub fn print_transactions(transactions: Vec<Transaction>) {
-//     for transaction in transactions.iter() {
-//         println!("{:?}", transaction);
-//     }
-// }
-
 // pub fn count_number_of_p2pkh_transactions(transactions: Vec<Transaction>) -> i32 {
 //     let mut count = 0;
 
@@ -146,15 +142,35 @@ fn is_p2pkh_transaction(transaction: &Transaction) -> bool {
     true
 }
 
-fn is_p2pkh2_transaction(transaction: &Transaction) -> bool {
+fn is_p2wpkh_transaction(transaction: &Transaction) -> bool {
     let vin = &transaction.vin;
         for vin_content in vin {
-            if vin_content.prevout.scriptpubkey_type != "p2pkh" {
+            if vin_content.prevout.scriptpubkey_type != "v0_p2wpkh" {
                 return false;
             }
         }
     true
 }
+
+// pub fn count_number_of_p2wpkh_transactions(transactions: Vec<Transaction>) -> i32 {
+//      let mut count = 0;
+
+//      for transaction in transactions.iter() {
+//          let vin = &transaction.vin;
+//          let mut is_true = true;
+//          for vin_content in vin {
+//              if vin_content.prevout.scriptpubkey_type != "v0_p2wpkh" {
+//                  is_true = false;
+//                  break;
+//             }
+//          }
+//          if is_true {
+//              count += 1;
+//          }
+//      }
+
+//      count
+// }
 
 #[allow(unused)]
 #[allow(warnings)]
@@ -266,6 +282,30 @@ fn combined_script<'a>(scriptsig_asm_array: Vec<&'a str>, scriptpubkey_asm_array
 }
 
 impl Transaction {
+
+    pub fn verify_input(&self, idx: usize) -> bool {
+        let vin = &self.vin[idx];
+        let scriptpubkey_asm_array: Vec<&str> = vin.prevout.scriptpubkey_asm.split_whitespace().collect();
+
+        let mut z: Vec<u8> = Vec::new();
+        let mut witness: Option<Vec<String>> = Some(Vec::new());
+
+        if is_p2pkh_lock(scriptpubkey_asm_array.clone()) {
+            z = self.sig_hash_legacy(idx); 
+            witness = None;
+        } else if is_p2wpkh_lock(scriptpubkey_asm_array.clone()) {
+            z = self.sig_hash_segwit(idx, None);
+            witness = Some(vin.witness.clone());
+        } else {
+            return false;
+        }
+
+        let scriptsig_asm = vin.scriptsig_asm.split_whitespace().collect();
+        let mut combined = combined_script(scriptsig_asm, scriptpubkey_asm_array);
+
+        true
+    }
+
     #[allow(warnings)]
     pub fn sig_hash_legacy(&self, input: usize) -> Vec<u8> {
         let mut tx_ins: Vec<&Vin> = Vec::new();
@@ -321,6 +361,55 @@ impl Transaction {
 
     }
 
+    pub fn sig_hash_segwit(&self, input: usize, witness_script: Option<Vec<String>>) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        
+        let vin = &self.vin[input];
+        let mut version = big_to_buf_le(self.version, Some(4));
+
+        // Todo
+        let mut hash_prevouts: Vec<u8> = self.hash_prevouts();
+        let mut hash_sequence: Vec<u8> = self.hash_sequence();
+
+        let mut prev_out = hex::decode(&vin.txid).unwrap();
+        prev_out.reverse();
+
+        let mut prev_index = big_to_buf_le(vin.vout, Some(4));
+
+        let mut script_code: Vec<u8> = Vec::new();
+
+        if let Some(witness_script) = witness_script {
+            for item in &witness_script {
+                script_code.append(&mut encode_varint(witness_script.len() as u64));
+                script_code.append(&mut hex::decode(item).unwrap());
+            }
+        } else {
+            let prev_script_pub_key: Vec<&str> = vin.prevout.scriptpubkey.split_whitespace().collect();
+            let pkh160 = hex::decode(prev_script_pub_key[1]).unwrap();
+            script_code = p2pkhlock(pkh160.as_ref());
+        }
+
+        let mut value = big_to_buf_le(vin.prevout.value as u64, Some(4));
+        let mut sequence = big_to_buf_le(vin.sequence as u64, Some(4));
+        let mut hash_outputs: Vec<u8> = self.hash_outputs();
+        let mut locktime = big_to_buf_le(self.locktime, Some(4));
+        let mut sig_hash_type = big_to_buf_le(1u64, Some(4));
+
+        buf.append(&mut version);
+        buf.append(&mut hash_prevouts);
+        buf.append(&mut hash_sequence);
+        buf.append(&mut prev_out);
+        buf.append(&mut prev_index);
+        buf.append(&mut script_code);
+        buf.append(&mut value);
+        buf.append(&mut sequence);
+        buf.append(&mut hash_outputs);
+        buf.append(&mut locktime);
+        buf.append(&mut sig_hash_type);
+
+        hash256(&buf)
+    }
+
     pub fn serialize_legacy(&self) -> Vec<u8> {
         let mut buf: Vec<u8> = Vec::new();
         buf.append(&mut big_to_buf_le(self.version, Some(4)));
@@ -343,6 +432,78 @@ impl Transaction {
         buf.append(&mut big_to_buf_le(self.locktime, Some(4)));
         
         buf
+    }
+
+    pub fn serialize_segwit_tx_id(&self) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.append(&mut big_to_buf_le(self.version, Some(4)));
+        buf.append(&mut encode_varint(self.vin.len() as u64));
+
+        let mut serialized_ins: Vec<u8> = Vec::new();
+        for vin in &self.vin {
+            serialized_ins.append(&mut vin.serialize_hex(&mut hex_string_to_bytes(&vin.scriptsig).unwrap()));
+        }
+
+        buf.append(&mut serialized_ins);
+
+        buf.append(&mut encode_varint(self.vout.len() as u64));
+        let mut serialized_outs: Vec<u8> = Vec::new();
+        for vout in &self.vout {
+            serialized_outs.append(&mut vout.serialize_hex());
+        }
+
+        buf.append(&mut serialized_outs);
+        buf.append(&mut big_to_buf_le(self.locktime, Some(4)));
+
+        buf
+    }
+
+    pub fn serialize_segwit(&self) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.append(&mut big_to_buf_le(self.version, Some(4)));
+
+        let buffer: [u8; 2] = [0x00, 0x01];
+        buf.append(&mut buffer.to_vec());
+        buf.append(&mut encode_varint(self.vin.len() as u64));
+
+        let mut serialized_ins: Vec<u8> = Vec::new();
+        for vin in &self.vin {
+            serialized_ins.append(&mut vin.serialize_hex(&mut hex_string_to_bytes(&vin.scriptsig).unwrap()));
+        }
+
+        buf.append(&mut serialized_ins);
+
+        buf.append(&mut encode_varint(self.vout.len() as u64));
+        let mut serialized_outs: Vec<u8> = Vec::new();
+        for vout in &self.vout {
+            serialized_outs.append(&mut vout.serialize_hex());
+        }
+
+        buf.append(&mut serialized_outs);
+        buf.append(&mut self.serialize_witness());
+        buf.append(&mut big_to_buf_le(self.locktime, Some(4)));
+        
+        buf
+    }
+
+    pub fn serialize_witness(&self) -> Vec<u8> {
+        let mut bufs: Vec<Vec<u8>> = Vec::new();
+        let mut res: Vec<u8> = Vec::new();
+
+        for vin in &self.vin {
+            bufs.push(encode_varint(vin.witness.len() as u64));
+
+            for item in &vin.witness {
+                bufs.push(hex::decode(item).unwrap());                   
+            }
+
+        }
+
+        for mut buf in bufs {
+            res.append(&mut buf);
+        }
+
+        res
     }
 
     pub fn get_tx_id(&self) -> Vec<u8> {
@@ -372,8 +533,35 @@ impl Transaction {
         coinbase_tx
     }
 
-    // fn create_coinbase_transaction_id(&self, merkel_root: &str) -> Vec<u8> {
-    //     hash256(&hex::decode(self.create_coinbase_transaction(merkel_root)).unwrap())
-    // }
+    pub fn hash_prevouts(&self) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        for vin in &self.vin {
+            let mut prev_tx = hex::decode(&vin.txid).unwrap();
+            prev_tx.reverse();
+            buf.append(&mut prev_tx);
+            buf.append(&mut big_to_buf_le(vin.vout, Some(4)));
+        }
+        hash256(&buf)
+    }
+
+    pub fn hash_outputs(&self) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+
+        for vout in &self.vout {
+            buf.append(&mut vout.serialize_hex());
+        }
+
+        hash256(&buf)
+    }
+
+    pub fn hash_sequence(&self) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+
+        for vin in &self.vin {
+            buf.append(&mut big_to_buf_le(vin.sequence as u64, Some(4)))
+        }
+
+        hash256(&buf)
+    }
 
 }
