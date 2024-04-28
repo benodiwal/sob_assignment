@@ -124,7 +124,7 @@ pub fn op_check_sig(stack: &mut Vec<Vec<u8>>, z: &[u8]) -> bool {
     };
 
     if verify(&msg_hash, &sig, &pk) {
-        println!("Yes");
+        op_1(stack, z);
     } else {
         op_0(stack, z);
     }
@@ -175,8 +175,6 @@ pub fn op_equal_verify(stack: &mut Vec<Vec<u8>>, _: &[u8]) -> bool {
     if !op_verify(stack, &[0]) {
         return false;
     }
-
-    println!("{:?}", stack);
 
     true
 }

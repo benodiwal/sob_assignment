@@ -76,7 +76,7 @@ impl SerializeHexVin for Vin {
 impl SerializeHexVout for Vout {
     fn serialize_hex(&self) -> Vec<u8> {
         let mut value = big_to_buf_le(self.value as u64, Some(8));
-        if let Some(mut script_pub_key) = hex_string_to_bytes(&self.scriptpubkey) {
+        if let Ok(mut script_pub_key) = hex::decode(&self.scriptpubkey) {
             let mut scriptpubkeylen = encode_varint(script_pub_key.len() as u64);
             value.append(&mut scriptpubkeylen);
             value.append(&mut script_pub_key);
@@ -241,21 +241,23 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
                 let mut wtx_rev = transaction.get_wtx_id();
                 wtx_rev.reverse();
 
-                // let file_hash = Sha256::digest(tx_rev.clone());
+                count += 1;
+
+                let file_hash = Sha256::digest(tx_rev.clone());
                 // if hex::encode(file_hash) == "4c79436e7160b767cc0358e1bb93d52b9ba0844c292cbe97624fc122e1ecf969" {
                 //     println!("{:?}", transaction);
                 //     break;
                 // }
 
-                // unsafe {
-                //     if files.contains(&hex::encode(file_hash)) {
-                //         tx_ids_hash.push(hex::encode(tx_rev));
-                //     }
-                // }
-                count += 1;
+                unsafe {
+                    if files.contains(&hex::encode(file_hash)) {
+                        tx_ids_hash.push(hex::encode(&tx_rev));
+                        wtx_ids_hash.push(hex::encode(wtx_rev));
+                    }
+                }
+                // count += 1;
                 
-                tx_ids_hash.push(hex::encode(tx_rev));
-                wtx_ids_hash.push(hex::encode(wtx_rev));
+                // tx_ids_hash.push(hex::encode(tx_rev));
 
                 // println!("{}", hex::encode(file_hash));
             }
@@ -278,7 +280,7 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
         file.write_all((tx.clone() + "\n").as_bytes());
     }
 
-    println!("{}", count);
+    println!("Verified --> {}", count);
 
     generate_merkel_root(tx_ids_hash.iter().map(|s| s.as_str()).collect()).unwrap()
 
@@ -392,16 +394,24 @@ impl Transaction {
         let mut buf: Vec<u8> = Vec::new();
         
         let vin = &self.vin[input];
-        let mut version = big_to_buf_le(self.version, Some(4));
 
-        // Todo
+        let mut version = big_to_buf_le(self.version, Some(4));
+        println!("{:?}", hex::encode(version.clone()));
+
         let mut hash_prevouts: Vec<u8> = self.hash_prevouts();
+        println!("{:?}", hex::encode(hash_prevouts.clone()));
         let mut hash_sequence: Vec<u8> = self.hash_sequence();
+        println!("{:?}", hex::encode(hash_sequence.clone()));
 
         let mut prev_out = hex::decode(&vin.txid).unwrap();
+        println!("Prev out --> {:?}", hex::encode(prev_out.clone()));
         prev_out.reverse();
 
+        /// Wrong
+        println!("{:?}", hex::encode(prev_out.clone()));
+
         let mut prev_index = big_to_buf_le(vin.vout, Some(4));
+        println!("{:?}", hex::encode(prev_index.clone()));
 
         let mut script_code: Vec<u8> = Vec::new();
 
@@ -414,25 +424,35 @@ impl Transaction {
             let prev_script_pub_key: Vec<&str> = vin.prevout.scriptpubkey_asm.split_whitespace().collect();
             let pkh160 = hex::decode(prev_script_pub_key[2]).unwrap();
             script_code = p2pkhlock(pkh160.as_ref());
+            // println!("LENGTH --> {:?}", script_code.len());
         }
 
+        println!("IMP --> {:?}", vin.prevout.value);
         let mut value = big_to_buf_le(vin.prevout.value as u64, Some(8));
+        println!("{:?}", hex::encode(value.clone()));
         let mut sequence = big_to_buf_le(vin.sequence as u64, Some(4));
+        println!("{:?}", hex::encode(sequence.clone()));
         let mut hash_outputs: Vec<u8> = self.hash_outputs();
+        println!("{:?}", hex::encode(hash_outputs.clone()));
         let mut locktime = big_to_buf_le(self.locktime, Some(4));
+        println!("{:?}", hex::encode(locktime.clone()));
         let mut sig_hash_type = big_to_buf_le(1u64, Some(4));
+        println!("{:?}", hex::encode(sig_hash_type.clone()));
 
         buf.append(&mut version);
         buf.append(&mut hash_prevouts);
         buf.append(&mut hash_sequence);
         buf.append(&mut prev_out);
         buf.append(&mut prev_index);
+        buf.append(&mut encode_varint(script_code.len() as u64));
         buf.append(&mut script_code);
         buf.append(&mut value);
         buf.append(&mut sequence);
         buf.append(&mut hash_outputs);
         buf.append(&mut locktime);
         buf.append(&mut sig_hash_type);
+
+        println!("{:?}", hex::encode(&buf));
 
         hash256(&buf)
     }
@@ -528,7 +548,7 @@ impl Transaction {
 
         for mut buf in bufs {
             res.append(&mut buf);
-        }
+        }   
 
         res
     }
@@ -542,11 +562,11 @@ impl Transaction {
     }
 
     pub fn get_wtx_id(&self) -> Vec<u8> {
-        if !self.is_segwit() {
-            hash256(&self.serialize_legacy())
-        } else {
+        // if !self.is_segwit() {
+            // hash256(&self.serialize_legacy())
+        // } else {
             hash256(&self.serialize_segwit())  
-        }
+        // }
     }
 
     fn is_segwit(&self) -> bool {

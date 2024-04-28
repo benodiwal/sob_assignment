@@ -1,4 +1,4 @@
-use crate::operations::{hash_160, hash_256, op_0, op_1, op_2, op_3, op_check_multi_sig, op_check_sig, op_check_sig_verify, op_dup, op_equal, op_equal_verify, op_ripemd160, op_sha1, op_sha256};
+use crate::{operations::{hash_160, hash_256, op_0, op_1, op_2, op_3, op_check_multi_sig, op_check_sig, op_check_sig_verify, op_dup, op_equal, op_equal_verify, op_ripemd160, op_sha1, op_sha256}, utils::encode_varint};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Operation {
@@ -198,6 +198,7 @@ pub fn p2pkhlock(pkh160: &[u8]) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::new();
     buf.append(&mut hex::decode("76").unwrap());
     buf.append(&mut hex::decode("a9").unwrap());
+    buf.append(& mut hex::decode("14").unwrap());
     buf.append(&mut pkh160.to_vec());
     buf.append(&mut hex::decode("88").unwrap());
     buf.append(&mut hex::decode("ac").unwrap());
