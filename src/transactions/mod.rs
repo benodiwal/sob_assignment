@@ -253,6 +253,8 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
                     if files.contains(&hex::encode(file_hash)) {
                         tx_ids_hash.push(hex::encode(&tx_rev));
                         wtx_ids_hash.push(hex::encode(wtx_rev));
+
+                        println!("{:?}", wtx_ids_hash);
                     }
                 }
                 // count += 1;
@@ -407,7 +409,6 @@ impl Transaction {
         println!("Prev out --> {:?}", hex::encode(prev_out.clone()));
         prev_out.reverse();
 
-        /// Wrong
         println!("{:?}", hex::encode(prev_out.clone()));
 
         let mut prev_index = big_to_buf_le(vin.vout, Some(4));
@@ -509,13 +510,14 @@ impl Transaction {
         let mut buf: Vec<u8> = Vec::new();
         buf.append(&mut big_to_buf_le(self.version, Some(4)));
 
-        let buffer: [u8; 2] = [0x00, 0x01];
-        buf.append(&mut buffer.to_vec());
+        let mut buffer: Vec<u8> = vec![0x00, 0x01];
+        buf.append(&mut buffer);
+
         buf.append(&mut encode_varint(self.vin.len() as u64));
 
         let mut serialized_ins: Vec<u8> = Vec::new();
         for vin in &self.vin {
-            serialized_ins.append(&mut vin.serialize_hex(&mut hex_string_to_bytes(&vin.scriptsig).unwrap()));
+            serialized_ins.append(&mut vin.serialize_hex(&mut hex::decode(&vin.scriptsig).unwrap()));
         }
 
         buf.append(&mut serialized_ins);
@@ -529,6 +531,7 @@ impl Transaction {
         buf.append(&mut serialized_outs);
         buf.append(&mut self.serialize_witness());
         buf.append(&mut big_to_buf_le(self.locktime, Some(4)));
+        buf.append(&mut self.serialize_witness());
         
         buf
     }
@@ -562,11 +565,11 @@ impl Transaction {
     }
 
     pub fn get_wtx_id(&self) -> Vec<u8> {
-        // if !self.is_segwit() {
-            // hash256(&self.serialize_legacy())
-        // } else {
+        if !self.is_segwit() {
+            hash256(&self.serialize_legacy())
+        } else {
             hash256(&self.serialize_segwit())  
-        // }
+        }
     }
 
     fn is_segwit(&self) -> bool {

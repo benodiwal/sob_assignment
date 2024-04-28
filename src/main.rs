@@ -12,7 +12,7 @@ mod block;
 mod op_codes;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let transactions = load_transactions_from_mempool("mempool")?;
+    let transactions = load_transactions_from_mempool("testpool")?;
 
     let mut file = File::create("output.txt")?; 
     let block = Block::default();
