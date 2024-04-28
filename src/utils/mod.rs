@@ -96,6 +96,7 @@ fn hash_25(input: &[u8]) -> String {
 
 pub fn calculate_witness_commitment(wtx_ids: Vec<String>) -> String {
     let witness_root = generate_merkel_root(wtx_ids.iter().map(|s| s.as_str()).collect()).unwrap();
+    println!("Merkel Witness Root --> {:?}", witness_root);
     let witness_reserved_value = "0000000000000000000000000000000000000000000000000000000000000000";
     hash_25(&hex::decode(witness_root + witness_reserved_value).unwrap())
 }

@@ -227,49 +227,34 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
                 i+=1;
             }
 
-            // if !is_valid {
-            //     let mut tx_rev = transaction.get_tx_id();
-            //     tx_rev.reverse();
-            //     println!("{}", hex::encode(tx_rev));
-            // }
-
             if fees_check(input_sum, output_sum) && is_valid {
 
                 let mut tx_rev = transaction.get_tx_id();
                 tx_rev.reverse();
 
                 let mut wtx_rev = transaction.get_wtx_id();
+                println!("WTX --> {:?}", hex::encode(&wtx_rev));
                 wtx_rev.reverse();
 
                 count += 1;
 
                 let file_hash = Sha256::digest(tx_rev.clone());
-                // if hex::encode(file_hash) == "4c79436e7160b767cc0358e1bb93d52b9ba0844c292cbe97624fc122e1ecf969" {
-                //     println!("{:?}", transaction);
-                //     break;
-                // }
-
                 unsafe {
                     if files.contains(&hex::encode(file_hash)) {
                         tx_ids_hash.push(hex::encode(&tx_rev));
-                        wtx_ids_hash.push(hex::encode(wtx_rev));
-
-                        println!("{:?}", wtx_ids_hash);
+                        wtx_ids_hash.push(hex::encode(&wtx_rev));
                     }
                 }
-                // count += 1;
-                
-                // tx_ids_hash.push(hex::encode(tx_rev));
 
-                // println!("{}", hex::encode(file_hash));
             }
 
         }
     }
 
-    // let mut wtx_ids_hash: Vec<String> = tx_ids_hash.clone();
     wtx_ids_hash.insert(0, "0000000000000000000000000000000000000000000000000000000000000000".to_string());
     let witness_commitment = calculate_witness_commitment(wtx_ids_hash);
+
+    println!("Witness Commitment --> {}", witness_commitment);
 
     let coinbase_tx = Transaction::create_coinbase_transaction(&witness_commitment);
     let mut coinbase_tx_id = hash256(&hex::decode(&coinbase_tx).unwrap());
@@ -531,7 +516,8 @@ impl Transaction {
         buf.append(&mut serialized_outs);
         buf.append(&mut self.serialize_witness());
         buf.append(&mut big_to_buf_le(self.locktime, Some(4)));
-        buf.append(&mut self.serialize_witness());
+
+        println!("{:?}", hex::encode(&buf));
         
         buf
     }
@@ -544,9 +530,9 @@ impl Transaction {
             bufs.push(encode_varint(vin.witness.len() as u64));
 
             for item in &vin.witness {
+                bufs.push(encode_varint(hex::decode(item).unwrap().len() as u64));
                 bufs.push(hex::decode(item).unwrap());                   
             }
-
         }
 
         for mut buf in bufs {
@@ -560,7 +546,7 @@ impl Transaction {
         if !self.is_segwit() {
             hash256(&self.serialize_legacy())
         } else {
-            hash256(&self.serialize_segwit_tx_id())         
+            hash256(&self.serialize_segwit_tx_id())       
         }
     }
 
