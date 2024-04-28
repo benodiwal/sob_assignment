@@ -303,6 +303,8 @@ impl Transaction {
         let scriptsig_asm = vin.scriptsig_asm.split_whitespace().collect();
         let mut combined = combined_script(scriptsig_asm, scriptpubkey_asm_array);
 
+        
+
         true
     }
 

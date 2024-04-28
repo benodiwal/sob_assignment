@@ -1,15 +1,10 @@
-// use std::{fs::File, io::Write};
-
-// use block::Block;
 use transactions::load_transactions_from_mempool;
-// use utils::prepend_to_file;
 
 mod transactions;
 mod utils;
 mod operations;
 mod scripts;
 mod block;
-mod blockchain;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
         let transactions = load_transactions_from_mempool("mempool")?;
