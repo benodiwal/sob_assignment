@@ -182,7 +182,7 @@ pub fn verify_p2pkh_transactions(transactions: Vec<Transaction>, file: &mut File
 
     for transaction in transactions.iter() {
 
-        if is_p2wpkh_transaction(transaction) {
+        if is_p2wpkh_transaction(transaction) || is_p2pkh_transaction(transaction) {
 
             let vin = &transaction.vin;
             let vout = &transaction.vout;
